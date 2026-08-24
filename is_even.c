@@ -14,7 +14,7 @@ struct cons_inner {
 };
 
 struct closure_inner {
-    struct env *base_env;
+    struct object *base_env;
     struct object *arg_symbol;
     struct object *body;
 };
@@ -45,7 +45,7 @@ struct object *closure_get_body(struct object *closure) {
     return inner->body;
 }
 
-struct env *closure_get_base_env(struct object *closure) {
+struct object *closure_get_base_env(struct object *closure) {
     struct closure_inner *inner = closure_extract(closure);
     return inner->base_env;
 }
@@ -55,14 +55,14 @@ struct object *closure_get_arg_symbol(struct object *closure) {
     return inner->arg_symbol;
 }
 
-struct object *eval_inner(struct object *expr, struct env *env);
-struct env *env_new(struct object *closure, struct object *arg);
+struct object *eval_inner(struct object *expr, struct object *env);
+struct object *env_new(struct object *closure, struct object *arg);
 struct object *closure_apply(struct object *closure, struct object *arg) {
-    struct env *env = env_new(closure, arg);
+    struct object *env = env_new(closure, arg);
     return eval_inner(closure_get_body(closure), env);
 }
 
-struct object *closure_new(struct env *env, struct object *symbol, struct object *body) {
+struct object *closure_new(struct object *env, struct object *symbol, struct object *body) {
     struct closure *object = malloc(sizeof(*object));
     object->base.type = TYPE_CLOSURE;
     object->inner.base_env = env;
@@ -148,30 +148,34 @@ struct object *list_new(int count, ...) {
     return curr;
 }
 
-struct env {
-    struct env *base;
-    struct object *symbol;
-    struct object *value;
-};
-
-struct env *env_new(struct object *closure, struct object *arg) {
-    struct env *env = malloc(sizeof(*env));
-    env->base = closure_get_base_env(closure);
-    env->symbol = closure_get_arg_symbol(closure);
-    env->value = arg;
+struct object *env_new(struct object *closure, struct object *arg) {
+    struct object *binding = cons_new(
+        closure_get_arg_symbol(closure),
+        arg
+    );
+    
+    struct object *env = cons_new(
+        binding,
+        closure_get_base_env(closure)
+    );
+    
     return env;
 }
 
 struct object *env_lookup(struct env *env, struct object *symbol) {
     assert(env != NULL);
+    
+    struct object *binding = cons_car(env);
+    struct object *env_symbol = cons_car(binding);
 
-    if (symbol_eq(env->symbol, symbol)) {
-        return env->value;
+    if (symbol_eq(env_symbol, symbol)) {
+        return cons_cdr(binding);
     }
-    return env_lookup(env->base, symbol);
+    
+    return env_lookup(cons_cdr(env), symbol);
 }
 
-struct object *eval_inner(struct object *expr, struct env *env) {
+struct object *eval_inner(struct object *expr, struct object *env) {
     if (expr == NULL) {
         return expr;
     }
