@@ -162,7 +162,7 @@ struct object *env_new(struct object *closure, struct object *arg) {
     return env;
 }
 
-struct object *env_lookup(struct env *env, struct object *symbol) {
+struct object *env_lookup(struct object *env, struct object *symbol) {
     assert(env != NULL);
     
     struct object *binding = cons_car(env);
