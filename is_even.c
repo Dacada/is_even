@@ -8,116 +8,139 @@ struct symbol_inner {
     const char *str;
 };
 
-struct list_inner {
-    struct thing *car;
-    struct thing *cdr;
+struct cons_inner {
+    struct object *car;
+    struct object *cdr;
 };
 
 struct closure_inner {
     struct env *base_env;
-    struct thing *arg_symbol;
-    struct thing *body;
+    struct object *arg_symbol;
+    struct object *body;
 };
 
 enum type {
     TYPE_SYMBOL,
-    TYPE_LIST,
+    TYPE_CONS,
     TYPE_CLOSURE,
 };
 
-struct thing {
+struct object {
     enum type type;
 };
 
 struct closure {
-    struct thing base;
+    struct object base;
     struct closure_inner inner;
 };
 
-struct closure_inner *closure_extract(struct thing *closure) {
+struct closure_inner *closure_extract(struct object *closure) {
     assert(closure != NULL);
     assert(closure->type == TYPE_CLOSURE);
     return &((struct closure *)closure)->inner;
 }
 
-struct thing *closure_get_body(struct thing *closure) {
+struct object *closure_get_body(struct object *closure) {
     struct closure_inner *inner = closure_extract(closure);
     return inner->body;
 }
 
-struct env *closure_get_base_env(struct thing *closure) {
+struct env *closure_get_base_env(struct object *closure) {
     struct closure_inner *inner = closure_extract(closure);
     return inner->base_env;
 }
 
-struct thing *closure_get_arg_symbol(struct thing *closure) {
+struct object *closure_get_arg_symbol(struct object *closure) {
     struct closure_inner *inner = closure_extract(closure);
     return inner->arg_symbol;
 }
 
-struct thing *eval_inner(struct thing *expr, struct env *env);
-struct env *env_new(struct thing *closure, struct thing *arg);
-struct thing *closure_apply(struct thing *closure, struct thing *arg) {
+struct object *eval_inner(struct object *expr, struct env *env);
+struct env *env_new(struct object *closure, struct object *arg);
+struct object *closure_apply(struct object *closure, struct object *arg) {
     struct env *env = env_new(closure, arg);
     return eval_inner(closure_get_body(closure), env);
 }
 
-struct thing *closure_new(struct env *env, struct thing *symbol, struct thing *body) {
-    struct closure *thing = malloc(sizeof(*thing));
-    thing->base.type = TYPE_CLOSURE;
-    thing->inner.base_env = env;
-    thing->inner.arg_symbol = symbol;
-    thing->inner.body = body;
-    return &thing->base;
+struct object *closure_new(struct env *env, struct object *symbol, struct object *body) {
+    struct closure *object = malloc(sizeof(*object));
+    object->base.type = TYPE_CLOSURE;
+    object->inner.base_env = env;
+    object->inner.arg_symbol = symbol;
+    object->inner.body = body;
+    return &object->base;
 }
 
 struct symbol {
-    struct thing base;
+    struct object base;
     struct symbol_inner inner;
 };
 
-struct thing *symbol_new(const char *str) {
-    struct symbol *thing = malloc(sizeof(*thing));
-    thing->base.type = TYPE_SYMBOL;
-    thing->inner.str = str;
-    return &thing->base;
+struct object *symbol_new(const char *str) {
+    struct symbol *object = malloc(sizeof(*object));
+    object->base.type = TYPE_SYMBOL;
+    object->inner.str = str;
+    return &object->base;
 }
 
-const char *symbol_extract(struct thing *symbol) {
+const char *symbol_extract(struct object *symbol) {
     assert(symbol != NULL);
     assert(symbol->type == TYPE_SYMBOL);
     return ((struct symbol *)symbol)->inner.str;
 }
 
-bool symbol_is(struct thing *thing) {
-    return thing != NULL && thing->type == TYPE_SYMBOL;
+bool symbol_is(struct object *object) {
+    return object != NULL && object->type == TYPE_SYMBOL;
 }
 
-bool symbol_eq(struct thing *s1, struct thing *s2) {
+bool symbol_eq(struct object *s1, struct object *s2) {
     return strcmp(symbol_extract(s1), symbol_extract(s2)) == 0;
 }
 
-bool symbol_eq_static(struct thing *s1, const char *s2) {
+bool symbol_eq_static(struct object *s1, const char *s2) {
     return strcmp(symbol_extract(s1), s2) == 0;
 } 
 
-struct list {
-    struct thing base;
-    struct list_inner inner;
+struct cons {
+    struct object base;
+    struct cons_inner inner;
 };
 
+struct cons_inner *cons_extract(struct object *cons) {
+    assert(cons != NULL);
+    assert(cons->type == TYPE_CONS);
+    return &((struct cons *)cons)->inner;
+}
+
+struct object *cons_new(struct object *car, struct object *cdr) {
+    struct cons *object = malloc(sizeof(*object));
+    object->base.type = TYPE_CONS;
+    object->inner.car = car;
+    object->inner.cdr = cdr;
+    return &object->base;
+}
+
+struct object *cons_car(struct object *cons) {
+    struct cons_inner *inner = cons_extract(cons);
+    return inner->car;
+}
+
+struct object *cons_cdr(struct object *cons) {
+    struct cons_inner *inner = cons_extract(cons);
+    return inner->cdr;
+}
+
 // input must be reversed
-struct thing *list_new(int count, ...) {
+struct object *list_new(int count, ...) {
     va_list args;
     va_start(args, count);
 
-    struct thing *curr = NULL;
+    struct object *curr = NULL;
     for (int i = 0; i < count; i++) {
-        struct list *next = malloc(sizeof(*next));
-        next->base.type = TYPE_LIST;
-        next->inner.car = va_arg(args, struct thing *);
-        next->inner.cdr = curr;
-        curr = &next->base;
+        curr = cons_new(
+            va_arg(args, struct object *),
+            curr
+        );
     }
 
     va_end(args);
@@ -125,33 +148,13 @@ struct thing *list_new(int count, ...) {
     return curr;
 }
 
-bool list_empty(struct thing *list) {
-    return list == NULL;
-}
-
-struct list_inner *list_extract(struct thing *list) {
-    assert(list != NULL);
-    assert(list->type == TYPE_LIST);
-    return &((struct list *)list)->inner;
-}
-
-struct thing *list_first(struct thing *list) {
-    struct list_inner *inner = list_extract(list);
-    return inner->car;
-}
-
-struct thing *list_rest(struct thing *list) {
-    struct list_inner *inner = list_extract(list);
-    return inner->cdr;
-}
-
 struct env {
     struct env *base;
-    struct thing *symbol;
-    struct thing *value;
+    struct object *symbol;
+    struct object *value;
 };
 
-struct env *env_new(struct thing *closure, struct thing *arg) {
+struct env *env_new(struct object *closure, struct object *arg) {
     struct env *env = malloc(sizeof(*env));
     env->base = closure_get_base_env(closure);
     env->symbol = closure_get_arg_symbol(closure);
@@ -159,7 +162,7 @@ struct env *env_new(struct thing *closure, struct thing *arg) {
     return env;
 }
 
-struct thing *env_lookup(struct env *env, struct thing *symbol) {
+struct object *env_lookup(struct env *env, struct object *symbol) {
     assert(env != NULL);
 
     if (symbol_eq(env->symbol, symbol)) {
@@ -168,8 +171,8 @@ struct thing *env_lookup(struct env *env, struct thing *symbol) {
     return env_lookup(env->base, symbol);
 }
 
-struct thing *eval_inner(struct thing *expr, struct env *env) {
-    if (list_empty(expr)) {
+struct object *eval_inner(struct object *expr, struct env *env) {
+    if (expr == NULL) {
         return expr;
     }
 
@@ -181,38 +184,38 @@ struct thing *eval_inner(struct thing *expr, struct env *env) {
         return env_lookup(env, expr);
     }
 
-    struct thing *first = list_first(expr);
-    struct thing *rest = list_rest(expr);
+    struct object *first = cons_car(expr);
+    struct object *rest = cons_cdr(expr);
     if (symbol_is(first) && symbol_eq_static(first, "lambda")) {
-        struct thing *arg = list_first(rest);
-        struct thing *body = list_first(list_rest(rest));
+        struct object *arg = cons_car(rest);
+        struct object *body = cons_car(cons_cdr(rest));
         return closure_new(env, arg, body);
     }
 
-    struct thing *second = list_first(rest);
-    struct thing *arg = eval_inner(second, env);
+    struct object *second = cons_car(rest);
+    struct object *arg = eval_inner(second, env);
 
-    struct thing *closure = eval_inner(first, env);
+    struct object *closure = eval_inner(first, env);
     return closure_apply(closure, arg);
 }
 
-struct thing *eval(struct thing *expr) {
+struct object *eval(struct object *expr) {
     return eval_inner(expr, NULL);
 }
 
-void test_expression(struct thing *TRUE, struct thing *FALSE, struct thing *expr, bool to_be) {
-    struct thing *a = eval(TRUE);
-    struct thing *b = eval(FALSE);
+void test_expression(struct object *TRUE, struct object *FALSE, struct object *expr, bool to_be) {
+    struct object *a = eval(TRUE);
+    struct object *b = eval(FALSE);
 
-    struct thing *res = to_be ? a : b;
+    struct object *res = to_be ? a : b;
 
-    struct thing *result = eval(expr);
+    struct object *result = eval(expr);
     assert(closure_apply(closure_apply(result, a), b) == res);
 
 }
 
 int main() {
-    struct thing *TRUE = list_new(
+    struct object *TRUE = list_new(
         3,
         list_new(
             3,
@@ -224,7 +227,7 @@ int main() {
         symbol_new("lambda")
     );
 
-    struct thing *FALSE = list_new(
+    struct object *FALSE = list_new(
         3,
         list_new(
             3,
@@ -236,7 +239,7 @@ int main() {
         symbol_new("lambda")
     );
 
-    struct thing *NOT = list_new(
+    struct object *NOT = list_new(
         3,
         list_new(
             2,
@@ -251,7 +254,7 @@ int main() {
         symbol_new("lambda")
     );
 
-    struct thing *IS_EVEN = list_new(
+    struct object *IS_EVEN = list_new(
         3,
         list_new(
             2,
@@ -266,7 +269,7 @@ int main() {
         symbol_new("lambda")
     );
 
-    struct thing *TWO = list_new(
+    struct object *TWO = list_new(
         3,
         list_new(
             3,
@@ -286,7 +289,7 @@ int main() {
         symbol_new("lambda")
     );
 
-    struct thing *THREE = list_new(
+    struct object *THREE = list_new(
         3,
         list_new(
             3,
