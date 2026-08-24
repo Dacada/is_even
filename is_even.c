@@ -195,11 +195,12 @@ struct object *eval_inner(struct object *expr, struct object *env) {
         struct object *body = cons_car(cons_cdr(rest));
         return closure_new(env, arg, body);
     }
+    
+    struct object *closure = eval_inner(first, env);
 
     struct object *second = cons_car(rest);
     struct object *arg = eval_inner(second, env);
 
-    struct object *closure = eval_inner(first, env);
     return closure_apply(closure, arg);
 }
 
