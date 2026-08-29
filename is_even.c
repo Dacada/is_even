@@ -13,63 +13,14 @@ struct cons_inner {
     struct object *cdr;
 };
 
-struct closure_inner {
-    struct object *base_env;
-    struct object *arg_symbol;
-    struct object *body;
-};
-
 enum type {
     TYPE_SYMBOL,
     TYPE_CONS,
-    TYPE_CLOSURE,
 };
 
 struct object {
     enum type type;
 };
-
-struct closure {
-    struct object base;
-    struct closure_inner inner;
-};
-
-struct closure_inner *closure_extract(struct object *closure) {
-    assert(closure != NULL);
-    assert(closure->type == TYPE_CLOSURE);
-    return &((struct closure *)closure)->inner;
-}
-
-struct object *closure_get_body(struct object *closure) {
-    struct closure_inner *inner = closure_extract(closure);
-    return inner->body;
-}
-
-struct object *closure_get_base_env(struct object *closure) {
-    struct closure_inner *inner = closure_extract(closure);
-    return inner->base_env;
-}
-
-struct object *closure_get_arg_symbol(struct object *closure) {
-    struct closure_inner *inner = closure_extract(closure);
-    return inner->arg_symbol;
-}
-
-struct object *eval_inner(struct object *expr, struct object *env);
-struct object *env_new(struct object *closure, struct object *arg);
-struct object *closure_apply(struct object *closure, struct object *arg) {
-    struct object *env = env_new(closure, arg);
-    return eval_inner(closure_get_body(closure), env);
-}
-
-struct object *closure_new(struct object *env, struct object *symbol, struct object *body) {
-    struct closure *object = malloc(sizeof(*object));
-    object->base.type = TYPE_CLOSURE;
-    object->inner.base_env = env;
-    object->inner.arg_symbol = symbol;
-    object->inner.body = body;
-    return &object->base;
-}
 
 struct symbol {
     struct object base;
@@ -148,6 +99,32 @@ struct object *list_new(int count, ...) {
     return curr;
 }
 
+struct object *closure_get_body(struct object *closure) {
+    struct object *function = cons_cdr(closure);
+    return cons_cdr(function);
+}
+
+struct object *closure_get_base_env(struct object *closure) {
+    return cons_car(closure);
+}
+
+struct object *closure_get_arg_symbol(struct object *closure) {
+    struct object *function = cons_cdr(closure);
+    return cons_car(function);
+}
+
+struct object *closure_new(struct object *env, struct object *symbol, struct object *body) {
+    struct object *function = cons_new(symbol, body);
+    return cons_new(env, function);
+}
+
+struct object *eval_inner(struct object *expr, struct object *env);
+struct object *env_new(struct object *closure, struct object *arg);
+struct object *closure_apply(struct object *closure, struct object *arg) {
+    struct object *env = env_new(closure, arg);
+    return eval_inner(closure_get_body(closure), env);
+}
+
 struct object *env_new(struct object *closure, struct object *arg) {
     struct object *binding = cons_new(
         closure_get_arg_symbol(closure),
@@ -177,10 +154,6 @@ struct object *env_lookup(struct object *env, struct object *symbol) {
 
 struct object *eval_inner(struct object *expr, struct object *env) {
     if (expr == NULL) {
-        return expr;
-    }
-
-    if (expr->type == TYPE_CLOSURE) {
         return expr;
     }
 
