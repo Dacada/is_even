@@ -1,8 +1,8 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <stdarg.h>
 #include <string.h>
+#include <ctype.h>
 
 struct symbol_inner {
     const char *str;
@@ -81,24 +81,6 @@ struct object *cons_cdr(struct object *cons) {
     return inner->cdr;
 }
 
-// input must be reversed
-struct object *list_new(int count, ...) {
-    va_list args;
-    va_start(args, count);
-
-    struct object *curr = NULL;
-    for (int i = 0; i < count; i++) {
-        curr = cons_new(
-            va_arg(args, struct object *),
-            curr
-        );
-    }
-
-    va_end(args);
-
-    return curr;
-}
-
 struct object *closure_get_body(struct object *closure) {
     struct object *function = cons_cdr(closure);
     return cons_cdr(function);
@@ -118,25 +100,24 @@ struct object *closure_new(struct object *env, struct object *symbol, struct obj
     return cons_new(env, function);
 }
 
-struct object *eval_inner(struct object *expr, struct object *env);
-struct object *env_new(struct object *closure, struct object *arg);
+struct object *eval(struct object *expr, struct object *env);
+struct object *env_from_closure(struct object *closure, struct object *arg);
 struct object *closure_apply(struct object *closure, struct object *arg) {
-    struct object *env = env_new(closure, arg);
-    return eval_inner(closure_get_body(closure), env);
+    struct object *env = env_from_closure(closure, arg);
+    return eval(closure_get_body(closure), env);
 }
 
-struct object *env_new(struct object *closure, struct object *arg) {
-    struct object *binding = cons_new(
+struct object *env_bind(struct object *env, struct object *symbol, struct object *value) {
+    struct object *binding = cons_new(symbol, value);
+    return cons_new(binding, env);
+}
+
+struct object *env_from_closure(struct object *closure, struct object *arg) {
+    return env_bind(
+        closure_get_base_env(closure),
         closure_get_arg_symbol(closure),
         arg
     );
-    
-    struct object *env = cons_new(
-        binding,
-        closure_get_base_env(closure)
-    );
-    
-    return env;
 }
 
 struct object *env_lookup(struct object *env, struct object *symbol) {
@@ -152,7 +133,7 @@ struct object *env_lookup(struct object *env, struct object *symbol) {
     return env_lookup(cons_cdr(env), symbol);
 }
 
-struct object *eval_inner(struct object *expr, struct object *env) {
+struct object *eval(struct object *expr, struct object *env) {
     if (expr == NULL) {
         return expr;
     }
@@ -169,130 +150,153 @@ struct object *eval_inner(struct object *expr, struct object *env) {
         return closure_new(env, arg, body);
     }
     
-    struct object *closure = eval_inner(first, env);
+    struct object *closure = eval(first, env);
 
     struct object *second = cons_car(rest);
-    struct object *arg = eval_inner(second, env);
+    struct object *arg = eval(second, env);
 
     return closure_apply(closure, arg);
 }
 
-struct object *eval(struct object *expr) {
-    return eval_inner(expr, NULL);
+struct object *parse_inner(const unsigned char **src);
+
+void parse_skip_whitespace(const unsigned char **src) {
+    while (isblank(**src)) {
+        *src += 1;
+        if (**src == '\0') {
+            return;
+        }
+    }
 }
 
-void test_expression(struct object *TRUE, struct object *FALSE, struct object *expr, bool to_be) {
-    struct object *a = eval(TRUE);
-    struct object *b = eval(FALSE);
+struct object *parse_list_rest(const unsigned char **src) {
+    struct object *list = NULL;
+    struct object **next = &list;
+    
+    while (**src != ')') {
+        struct object *obj = parse_inner(src);
+        parse_skip_whitespace(src);
+        
+        struct object *new = cons_new(obj, NULL);
+        *next = new;
+        next = &cons_extract(new)->cdr;
+        
+    }
+    
+    *src += 1;
+    return list;
+}
 
-    struct object *res = to_be ? a : b;
+struct object *parse_list_or_cons(const unsigned char **src) {
+    // known open parenthesis
+    *src += 1;
+    
+    parse_skip_whitespace(src);
+    
+    if (**src == ')') {
+        // empty list
+        *src += 1;
+        return NULL;
+    }
+    
+    struct object *first = parse_inner(src);
+    
+    parse_skip_whitespace(src);
+    
+    if (**src != '.') {
+        struct object *rest = parse_list_rest(src);
+        return cons_new(first, rest);
+    }
+    
+    *src += 1;
+    
+    parse_skip_whitespace(src);
+    
+    struct object *second = parse_inner(src);
+    struct object *cons = cons_new(first, second);
+    
+    parse_skip_whitespace(src);
+    
+    if (**src == ')') {
+        *src += 1;
+        return cons;
+    }
+    
+    assert(false);
+}
 
-    struct object *result = eval(expr);
-    assert(closure_apply(closure_apply(result, a), b) == res);
+struct object *parse_atom(const unsigned char **src) {
+    const unsigned char *orig = *src;
+    while (isalpha(**src)) {
+        *src += 1;
+    }
+    size_t size = sizeof(char) * (*src - orig);
+    char *name = malloc(size + 1);
+    memcpy(name, orig, size);
+    name[size] = '\0';
+    return symbol_new(name);
+}
 
+struct object *parse_inner(const unsigned char **src) {
+    parse_skip_whitespace(src);
+    assert(**src != '\0');
+    
+    if (**src == '(') {
+        return parse_list_or_cons(src);
+    }
+    
+    if (isalpha(**src)) {
+        return parse_atom(src);
+    }
+    
+    assert(false);
+}
+
+struct object *parse(const char *src) {
+    const unsigned char *ptr = ((const unsigned char*)src);
+    return parse_inner(&ptr);
+}
+
+void test_expression(struct object *env, struct object *expr, bool to_be) {
+    struct object *t = symbol_new("TRUE");
+    struct object *f = symbol_new("FALSE");
+
+    struct object *tt = env_lookup(env, t);
+    struct object *ff = env_lookup(env, f);
+
+    struct object *res = to_be ? tt : ff;
+
+    struct object *result = eval(expr, env);
+    assert(closure_apply(closure_apply(result, tt), ff) == res);
+}
+
+struct object *env_bind_char(struct object *env, const char *str, struct object *val) {
+    struct object *symbol = symbol_new(str);
+    return env_bind(env, symbol, val);
 }
 
 int main() {
-    struct object *TRUE = list_new(
-        3,
-        list_new(
-            3,
-            symbol_new("a"),
-            symbol_new("b"),
-            symbol_new("lambda")
-        ),
-        symbol_new("a"),
-        symbol_new("lambda")
-    );
+    struct object *TRUE = parse("(lambda a (lambda b a))");
+    struct object *FALSE = parse("(lambda a (lambda b b))");
+    struct object *NOT = parse("(lambda p ((p FALSE) TRUE))");
+    struct object *ISEVEN = parse("(lambda n ((n NOT) TRUE))");
+    struct object *TWO = parse("(lambda f (lambda x (f (f x))))");
+    struct object *THREE = parse("(lambda f (lambda x (f (f (f x)))))");
 
-    struct object *FALSE = list_new(
-        3,
-        list_new(
-            3,
-            symbol_new("b"),
-            symbol_new("b"),
-            symbol_new("lambda")
-        ),
-        symbol_new("a"),
-        symbol_new("lambda")
-    );
+    struct object *IS_THREE_EVEN = parse("(ISEVEN THREE)");
+    struct object *IS_TWO_EVEN = parse("(ISEVEN TWO)");
 
-    struct object *NOT = list_new(
-        3,
-        list_new(
-            2,
-            TRUE,
-            list_new(
-                2,
-                FALSE,
-                symbol_new("p")
-            )
-        ),
-        symbol_new("p"),
-        symbol_new("lambda")
-    );
+    struct object *env = NULL;
 
-    struct object *IS_EVEN = list_new(
-        3,
-        list_new(
-            2,
-            TRUE,
-            list_new(
-                2,
-                NOT,
-                symbol_new("n")
-            )
-        ),
-        symbol_new("n"),
-        symbol_new("lambda")
-    );
+    env = env_bind_char(env, "TRUE", eval(TRUE, env));
+    env = env_bind_char(env, "FALSE", eval(FALSE, env));
+    env = env_bind_char(env, "NOT", eval(NOT, env));
+    env = env_bind_char(env, "ISEVEN", eval(ISEVEN, env));
+    env = env_bind_char(env, "TWO", eval(TWO, env));
+    env = env_bind_char(env, "THREE", eval(THREE, env));
 
-    struct object *TWO = list_new(
-        3,
-        list_new(
-            3,
-            list_new(
-                2,
-                list_new(
-                    2,
-                    symbol_new("x"),
-                    symbol_new("f")
-                ),
-                symbol_new("f")
-            ),
-            symbol_new("x"),
-            symbol_new("lambda")
-        ),
-        symbol_new("f"),
-        symbol_new("lambda")
-    );
-
-    struct object *THREE = list_new(
-        3,
-        list_new(
-            3,
-            list_new(
-                2,
-                list_new(
-                    2,
-                    list_new(
-                        2,
-                        symbol_new("x"),
-                        symbol_new("f")
-                    ),
-                    symbol_new("f")
-                ),
-                symbol_new("f")
-            ),
-            symbol_new("x"),
-            symbol_new("lambda")
-        ),
-        symbol_new("f"),
-        symbol_new("lambda")
-    );
-
-    test_expression(TRUE, FALSE, list_new(2, THREE, IS_EVEN), false);
-    test_expression(TRUE, FALSE, list_new(2, TWO, IS_EVEN), true);
+    test_expression(env, IS_THREE_EVEN, false);
+    test_expression(env, IS_TWO_EVEN, true);
 
     return 0;
 }
